@@ -2,14 +2,12 @@ package otel
 
 import (
 	"context"
-	"crypto/tls"
-	"crypto/x509"
 	"fmt"
 	"os"
-	"path/filepath"
 	"sync"
 	"time"
 
+	"github.com/maximhq/bifrost/core/schemas"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetricgrpc"
@@ -17,7 +15,7 @@ import (
 	"go.opentelemetry.io/otel/metric"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/resource"
-	semconv "go.opentelemetry.io/otel/semconv/v1.39.0"
+	semconv "go.opentelemetry.io/otel/semconv/v1.40.0"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
 )
@@ -61,86 +59,84 @@ type MetricsExporter struct {
 	httpResponseSizeBytes *syncFloat64Histogram
 }
 
+// onceCounter provides thread-safe once-initialization for any OTel metric instrument.
+type onceCounter[I any] struct {
+	counter I
+	ok      bool
+	once    sync.Once
+}
+
+func (o *onceCounter[I]) load(name string, create func() (I, error)) (I, bool) {
+	o.once.Do(func() {
+		var err error
+		o.counter, err = create()
+		o.ok = err == nil
+		if err != nil {
+			logger.Error("failed to create metric %s: %v", name, err)
+		}
+	})
+	return o.counter, o.ok
+}
+
 // syncInt64Counter wraps metric.Int64Counter with thread-safe lazy initialization
 type syncInt64Counter struct {
-	counter metric.Int64Counter
-	once    sync.Once
-	name    string
-	desc    string
-	unit    string
-	meter   metric.Meter
+	onceCounter[metric.Int64Counter]
+	name, desc, unit string
+	meter            metric.Meter
+}
+
+func newSyncInt64Counter(name, desc, unit string, meter metric.Meter) *syncInt64Counter {
+	return &syncInt64Counter{name: name, desc: desc, unit: unit, meter: meter}
 }
 
 func (c *syncInt64Counter) Add(ctx context.Context, value int64, opts ...metric.AddOption) {
-	c.once.Do(func() {
-		var err error
-		c.counter, err = c.meter.Int64Counter(c.name,
-			metric.WithDescription(c.desc),
-			metric.WithUnit(c.unit),
-		)
-		if err != nil {
-			logger.Error("failed to create counter %s: %v", c.name, err)
-		}
-	})
-	if c.counter != nil {
-		c.counter.Add(ctx, value, opts...)
+	if inst, ok := c.load(c.name, func() (metric.Int64Counter, error) {
+		return c.meter.Int64Counter(c.name, metric.WithDescription(c.desc), metric.WithUnit(c.unit))
+	}); ok {
+		inst.Add(ctx, value, opts...)
 	}
 }
 
 // syncFloat64Counter wraps metric.Float64Counter with thread-safe lazy initialization
 type syncFloat64Counter struct {
-	counter metric.Float64Counter
-	once    sync.Once
-	name    string
-	desc    string
-	unit    string
-	meter   metric.Meter
+	onceCounter[metric.Float64Counter]
+	name, desc, unit string
+	meter            metric.Meter
+}
+
+func newSyncFloat64Counter(name, desc, unit string, meter metric.Meter) *syncFloat64Counter {
+	return &syncFloat64Counter{name: name, desc: desc, unit: unit, meter: meter}
 }
 
 func (c *syncFloat64Counter) Add(ctx context.Context, value float64, opts ...metric.AddOption) {
-	c.once.Do(func() {
-		var err error
-		c.counter, err = c.meter.Float64Counter(c.name,
-			metric.WithDescription(c.desc),
-			metric.WithUnit(c.unit),
-		)
-		if err != nil {
-			logger.Error("failed to create float counter %s: %v", c.name, err)
-		}
-	})
-	if c.counter != nil {
-		c.counter.Add(ctx, value, opts...)
+	if inst, ok := c.load(c.name, func() (metric.Float64Counter, error) {
+		return c.meter.Float64Counter(c.name, metric.WithDescription(c.desc), metric.WithUnit(c.unit))
+	}); ok {
+		inst.Add(ctx, value, opts...)
 	}
 }
 
 // syncFloat64Histogram wraps metric.Float64Histogram with thread-safe lazy initialization
 type syncFloat64Histogram struct {
-	histogram metric.Float64Histogram
-	once      sync.Once
-	name      string
-	desc      string
-	unit      string
-	meter     metric.Meter
+	onceCounter[metric.Float64Histogram]
+	name, desc, unit string
+	meter            metric.Meter
+}
+
+func newSyncFloat64Histogram(name, desc, unit string, meter metric.Meter) *syncFloat64Histogram {
+	return &syncFloat64Histogram{name: name, desc: desc, unit: unit, meter: meter}
 }
 
 func (h *syncFloat64Histogram) Record(ctx context.Context, value float64, opts ...metric.RecordOption) {
-	h.once.Do(func() {
-		var err error
-		h.histogram, err = h.meter.Float64Histogram(h.name,
-			metric.WithDescription(h.desc),
-			metric.WithUnit(h.unit),
-		)
-		if err != nil {
-			logger.Error("failed to create histogram %s: %v", h.name, err)
-		}
-	})
-	if h.histogram != nil {
-		h.histogram.Record(ctx, value, opts...)
+	if inst, ok := h.load(h.name, func() (metric.Float64Histogram, error) {
+		return h.meter.Float64Histogram(h.name, metric.WithDescription(h.desc), metric.WithUnit(h.unit))
+	}); ok {
+		inst.Record(ctx, value, opts...)
 	}
 }
 
 // NewMetricsExporter creates a new OTEL metrics exporter
-func NewMetricsExporter(ctx context.Context, config *MetricsConfig) (*MetricsExporter, error) {
+func NewMetricsExporter(ctx context.Context, config *MetricsConfig, version string) (*MetricsExporter, error) {
 	// Generate a unique instance ID for this node
 	instanceID, err := os.Hostname()
 	if err != nil {
@@ -187,7 +183,7 @@ func NewMetricsExporter(ctx context.Context, config *MetricsConfig) (*MetricsExp
 
 	// Create meter
 	meter := provider.Meter("bifrost",
-		metric.WithInstrumentationVersion("1.0.0"),
+		metric.WithInstrumentationVersion(version),
 	)
 
 	// Create metrics exporter
@@ -202,43 +198,6 @@ func NewMetricsExporter(ctx context.Context, config *MetricsConfig) (*MetricsExp
 	return m, nil
 }
 
-// validateCACertPath validates the CA certificate path to prevent path traversal attacks.
-// It ensures the path is absolute, cleaned of traversal sequences, and exists as a regular file.
-func validateCACertPath(certPath string) error {
-	if certPath == "" {
-		return nil
-	}
-
-	// Clean the path to resolve any .. or . components
-	cleanPath := filepath.Clean(certPath)
-
-	// Require absolute paths to prevent relative path attacks
-	if !filepath.IsAbs(cleanPath) {
-		return fmt.Errorf("TLS CA cert path must be absolute: %s", certPath)
-	}
-
-	// Check that the cleaned path doesn't differ significantly from input
-	// (indicates attempted traversal)
-	if cleanPath != filepath.Clean(filepath.FromSlash(certPath)) {
-		return fmt.Errorf("invalid TLS CA cert path: %s", certPath)
-	}
-
-	// Verify the file exists and is not a symlink
-	info, err := os.Lstat(cleanPath)
-	if err != nil {
-		return fmt.Errorf("TLS CA cert path not accessible: %w", err)
-	}
-	// Reject symlinks to prevent symlink-based path traversal
-	if info.Mode()&os.ModeSymlink != 0 {
-		return fmt.Errorf("TLS CA cert path cannot be a symlink: %s", certPath)
-	}
-	if !info.Mode().IsRegular() {
-		return fmt.Errorf("TLS CA cert path is not a regular file: %s", certPath)
-	}
-
-	return nil
-}
-
 func createHTTPExporter(ctx context.Context, config *MetricsConfig) (sdkmetric.Exporter, error) {
 	opts := []otlpmetrichttp.Option{
 		otlpmetrichttp.WithEndpointURL(config.Endpoint),
@@ -248,34 +207,16 @@ func createHTTPExporter(ctx context.Context, config *MetricsConfig) (sdkmetric.E
 		opts = append(opts, otlpmetrichttp.WithHeaders(config.Headers))
 	}
 
-	// TLS priority: custom CA > system roots > insecure
-	if config.TLSCACert != "" {
-		// Validate the CA cert path to prevent path traversal attacks
-		if err := validateCACertPath(config.TLSCACert); err != nil {
-			return nil, err
-		}
-		// Use custom CA certificate
-		caCert, err := os.ReadFile(config.TLSCACert)
-		if err != nil {
-			return nil, fmt.Errorf("failed to read CA cert: %w", err)
-		}
-		caCertPool := x509.NewCertPool()
-		if !caCertPool.AppendCertsFromPEM(caCert) {
-			return nil, fmt.Errorf("failed to parse CA cert")
-		}
-		tlsConfig := &tls.Config{
-			RootCAs:    caCertPool,
-			MinVersion: tls.VersionTLS12,
-		}
-		opts = append(opts, otlpmetrichttp.WithTLSClientConfig(tlsConfig))
-	} else if config.Insecure {
-		// Skip TLS entirely
+	// HTTP metrics insecure mode disables TLS entirely (unlike the trace HTTP client
+	// which uses InsecureSkipVerify). buildTLSConfig is bypassed for that case.
+	if config.TLSCACert == "" && config.Insecure {
 		opts = append(opts, otlpmetrichttp.WithInsecure())
 	} else {
-		// Use system root CAs (empty tls.Config uses system roots)
-		opts = append(opts, otlpmetrichttp.WithTLSClientConfig(&tls.Config{
-			MinVersion: tls.VersionTLS12,
-		}))
+		tlsConfig, err := buildTLSConfig(config.TLSCACert, false)
+		if err != nil {
+			return nil, err
+		}
+		opts = append(opts, otlpmetrichttp.WithTLSClientConfig(tlsConfig))
 	}
 
 	return otlpmetrichttp.New(ctx, opts...)
@@ -290,141 +231,50 @@ func createGRPCExporter(ctx context.Context, config *MetricsConfig) (sdkmetric.E
 		opts = append(opts, otlpmetricgrpc.WithHeaders(config.Headers))
 	}
 
-	// TLS priority: custom CA > system roots > insecure
-	if config.TLSCACert != "" {
-		// Validate the CA cert path to prevent path traversal attacks
-		if err := validateCACertPath(config.TLSCACert); err != nil {
-			return nil, err
-		}
-		// Use custom CA certificate with MinVersion
-		caCert, err := os.ReadFile(config.TLSCACert)
-		if err != nil {
-			return nil, fmt.Errorf("failed to read CA cert: %w", err)
-		}
-		caCertPool := x509.NewCertPool()
-		if !caCertPool.AppendCertsFromPEM(caCert) {
-			return nil, fmt.Errorf("failed to parse CA cert")
-		}
-		tlsConfig := &tls.Config{
-			RootCAs:    caCertPool,
-			MinVersion: tls.VersionTLS12,
-		}
-		creds := credentials.NewTLS(tlsConfig)
-		opts = append(opts, otlpmetricgrpc.WithTLSCredentials(creds))
-	} else if config.Insecure {
-		// Skip TLS entirely
+	// gRPC insecure mode uses plaintext (no TLS at all). buildTLSConfig is bypassed for that case.
+	if config.TLSCACert == "" && config.Insecure {
 		opts = append(opts, otlpmetricgrpc.WithTLSCredentials(insecure.NewCredentials()))
 	} else {
-		// Use system root CAs with MinVersion
-		tlsConfig := &tls.Config{
-			MinVersion: tls.VersionTLS12,
+		tlsConfig, err := buildTLSConfig(config.TLSCACert, false)
+		if err != nil {
+			return nil, err
 		}
-		creds := credentials.NewTLS(tlsConfig)
-		opts = append(opts, otlpmetricgrpc.WithTLSCredentials(creds))
+		opts = append(opts, otlpmetricgrpc.WithTLSCredentials(credentials.NewTLS(tlsConfig)))
 	}
 
 	return otlpmetricgrpc.New(ctx, opts...)
 }
 
 func (m *MetricsExporter) initMetrics() {
-	// Bifrost upstream metrics
-	m.upstreamRequestsTotal = &syncInt64Counter{
-		name:  "bifrost_upstream_requests_total",
-		desc:  "Total number of requests forwarded to upstream providers by Bifrost",
-		unit:  "{request}",
-		meter: m.meter,
+	for _, s := range []struct {
+		name, desc, unit string
+		ptr              **syncInt64Counter
+	}{
+		{"bifrost_upstream_requests_total", "Total number of requests forwarded to upstream providers by Bifrost", "{request}", &m.upstreamRequestsTotal},
+		{"bifrost_success_requests_total", "Total number of successful requests forwarded to upstream providers by Bifrost", "{request}", &m.successRequestsTotal},
+		{"bifrost_error_requests_total", "Total number of error requests forwarded to upstream providers by Bifrost", "{request}", &m.errorRequestsTotal},
+		{"bifrost_input_tokens_total", "Total number of input tokens forwarded to upstream providers by Bifrost", "{token}", &m.inputTokensTotal},
+		{"bifrost_output_tokens_total", "Total number of output tokens forwarded to upstream providers by Bifrost", "{token}", &m.outputTokensTotal},
+		{"bifrost_cache_hits_total", "Total number of cache hits forwarded to upstream providers by Bifrost", "{hit}", &m.cacheHitsTotal},
+		{"http_requests_total", "Total number of HTTP requests", "{request}", &m.httpRequestsTotal},
+	} {
+		*s.ptr = newSyncInt64Counter(s.name, s.desc, s.unit, m.meter)
 	}
 
-	m.successRequestsTotal = &syncInt64Counter{
-		name:  "bifrost_success_requests_total",
-		desc:  "Total number of successful requests forwarded to upstream providers by Bifrost",
-		unit:  "{request}",
-		meter: m.meter,
-	}
+	m.costTotal = newSyncFloat64Counter("bifrost_cost_total", "Total cost in USD for requests to upstream providers", "USD", m.meter)
 
-	m.errorRequestsTotal = &syncInt64Counter{
-		name:  "bifrost_error_requests_total",
-		desc:  "Total number of error requests forwarded to upstream providers by Bifrost",
-		unit:  "{request}",
-		meter: m.meter,
-	}
-
-	m.inputTokensTotal = &syncInt64Counter{
-		name:  "bifrost_input_tokens_total",
-		desc:  "Total number of input tokens forwarded to upstream providers by Bifrost",
-		unit:  "{token}",
-		meter: m.meter,
-	}
-
-	m.outputTokensTotal = &syncInt64Counter{
-		name:  "bifrost_output_tokens_total",
-		desc:  "Total number of output tokens forwarded to upstream providers by Bifrost",
-		unit:  "{token}",
-		meter: m.meter,
-	}
-
-	m.cacheHitsTotal = &syncInt64Counter{
-		name:  "bifrost_cache_hits_total",
-		desc:  "Total number of cache hits forwarded to upstream providers by Bifrost",
-		unit:  "{hit}",
-		meter: m.meter,
-	}
-
-	m.costTotal = &syncFloat64Counter{
-		name:  "bifrost_cost_total",
-		desc:  "Total cost in USD for requests to upstream providers",
-		unit:  "USD",
-		meter: m.meter,
-	}
-
-	m.upstreamLatencySeconds = &syncFloat64Histogram{
-		name:  "bifrost_upstream_latency_seconds",
-		desc:  "Latency of requests forwarded to upstream providers by Bifrost",
-		unit:  "s",
-		meter: m.meter,
-	}
-
-	m.streamFirstTokenLatencySeconds = &syncFloat64Histogram{
-		name:  "bifrost_stream_first_token_latency_seconds",
-		desc:  "Latency of the first token of a stream response",
-		unit:  "s",
-		meter: m.meter,
-	}
-
-	m.streamInterTokenLatencySeconds = &syncFloat64Histogram{
-		name:  "bifrost_stream_inter_token_latency_seconds",
-		desc:  "Latency of the intermediate tokens of a stream response",
-		unit:  "s",
-		meter: m.meter,
-	}
-
-	// HTTP metrics
-	m.httpRequestsTotal = &syncInt64Counter{
-		name:  "http_requests_total",
-		desc:  "Total number of HTTP requests",
-		unit:  "{request}",
-		meter: m.meter,
-	}
-
-	m.httpRequestDuration = &syncFloat64Histogram{
-		name:  "http_request_duration_seconds",
-		desc:  "Duration of HTTP requests",
-		unit:  "s",
-		meter: m.meter,
-	}
-
-	m.httpRequestSizeBytes = &syncFloat64Histogram{
-		name:  "http_request_size_bytes",
-		desc:  "Size of HTTP requests",
-		unit:  "By",
-		meter: m.meter,
-	}
-
-	m.httpResponseSizeBytes = &syncFloat64Histogram{
-		name:  "http_response_size_bytes",
-		desc:  "Size of HTTP responses",
-		unit:  "By",
-		meter: m.meter,
+	for _, s := range []struct {
+		name, desc, unit string
+		ptr              **syncFloat64Histogram
+	}{
+		{"bifrost_upstream_latency_seconds", "Latency of requests forwarded to upstream providers by Bifrost", "s", &m.upstreamLatencySeconds},
+		{"bifrost_stream_first_token_latency_seconds", "Latency of the first token of a stream response", "s", &m.streamFirstTokenLatencySeconds},
+		{"bifrost_stream_inter_token_latency_seconds", "Latency of the intermediate tokens of a stream response", "s", &m.streamInterTokenLatencySeconds},
+		{"http_request_duration_seconds", "Duration of HTTP requests", "s", &m.httpRequestDuration},
+		{"http_request_size_bytes", "Size of HTTP requests", "By", &m.httpRequestSizeBytes},
+		{"http_response_size_bytes", "Size of HTTP responses", "By", &m.httpResponseSizeBytes},
+	} {
+		*s.ptr = newSyncFloat64Histogram(s.name, s.desc, s.unit, m.meter)
 	}
 }
 
@@ -506,22 +356,39 @@ func (m *MetricsExporter) RecordHTTPResponseSize(ctx context.Context, sizeBytes 
 	m.httpResponseSizeBytes.Record(ctx, sizeBytes, metric.WithAttributes(attrs...))
 }
 
+// BifrostAttrParams holds parameters for building Bifrost metric attributes
+type BifrostAttrParams struct {
+	Provider        string
+	Model           string
+	Method          string
+	VirtualKeyID    string
+	VirtualKeyName  string
+	SelectedKeyID   string
+	SelectedKeyName string
+	NumberOfRetries int
+	FallbackIndex   int
+	TeamID          string
+	TeamName        string
+	CustomerID      string
+	CustomerName    string
+}
+
 // BuildBifrostAttributes builds common Bifrost metric attributes
-func BuildBifrostAttributes(provider, model, method, virtualKeyID, virtualKeyName, selectedKeyID, selectedKeyName string, numberOfRetries, fallbackIndex int, teamID, teamName, customerID, customerName string) []attribute.KeyValue {
+func BuildBifrostAttributes(p BifrostAttrParams) []attribute.KeyValue {
 	return []attribute.KeyValue{
-		attribute.String("provider", provider),
-		attribute.String("model", model),
-		attribute.String("method", method),
-		attribute.String("virtual_key_id", virtualKeyID),
-		attribute.String("virtual_key_name", virtualKeyName),
-		attribute.String("selected_key_id", selectedKeyID),
-		attribute.String("selected_key_name", selectedKeyName),
-		attribute.Int("number_of_retries", numberOfRetries),
-		attribute.Int("fallback_index", fallbackIndex),
-		attribute.String("team_id", teamID),
-		attribute.String("team_name", teamName),
-		attribute.String("customer_id", customerID),
-		attribute.String("customer_name", customerName),
+		attribute.String("provider", p.Provider),
+		attribute.String("model", p.Model),
+		attribute.String("method", p.Method),
+		attribute.String("virtual_key_id", p.VirtualKeyID),
+		attribute.String("virtual_key_name", p.VirtualKeyName),
+		attribute.String("selected_key_id", p.SelectedKeyID),
+		attribute.String("selected_key_name", p.SelectedKeyName),
+		attribute.Int("number_of_retries", p.NumberOfRetries),
+		attribute.Int("fallback_index", p.FallbackIndex),
+		attribute.String("team_id", p.TeamID),
+		attribute.String("team_name", p.TeamName),
+		attribute.String("customer_id", p.CustomerID),
+		attribute.String("customer_name", p.CustomerName),
 	}
 }
 
@@ -531,5 +398,156 @@ func BuildHTTPAttributes(path, method, status string) []attribute.KeyValue {
 		attribute.String("path", path),
 		attribute.String("method", method),
 		attribute.String("status", status),
+	}
+}
+
+// Helper functions for type-safe attribute extraction from trace spans
+func getStringAttr(attrs map[string]any, key string) string {
+	if attrs == nil {
+		return ""
+	}
+	if v, ok := attrs[key].(string); ok {
+		return v
+	}
+	return ""
+}
+
+func getIntAttr(attrs map[string]any, key string) int {
+	if attrs == nil {
+		return 0
+	}
+	switch v := attrs[key].(type) {
+	case int:
+		return v
+	case int64:
+		return int(v)
+	case float64:
+		return int(v)
+	}
+	return 0
+}
+
+func getFloat64Attr(attrs map[string]any, key string) float64 {
+	if attrs == nil {
+		return 0
+	}
+	switch v := attrs[key].(type) {
+	case float64:
+		return v
+	case int:
+		return float64(v)
+	case int64:
+		return float64(v)
+	}
+	return 0
+}
+
+// recordMetricsFromTrace extracts metrics data from a completed trace and records them
+// via the OTEL metrics exporter. This is called from Inject after trace emission.
+func (m *MetricsExporter) recordMetricsFromTrace(ctx context.Context, trace *schemas.Trace) {
+	if trace == nil || m == nil {
+		return
+	}
+
+	// Prefer the last attempt span (LLM call or retry) so metrics reflect the final outcome.
+	var llmSpan *schemas.Span
+	for _, span := range trace.Spans {
+		if span.Kind != schemas.SpanKindLLMCall && span.Kind != schemas.SpanKindRetry {
+			continue
+		}
+		if llmSpan == nil || span.EndTime.After(llmSpan.EndTime) {
+			llmSpan = span
+		}
+	}
+	if llmSpan == nil {
+		llmSpan = trace.RootSpan
+	}
+
+	if llmSpan == nil {
+		return
+	}
+
+	attrs := llmSpan.Attributes
+
+	// Extract all metric dimensions from span attributes
+	provider := getStringAttr(attrs, schemas.AttrProviderName)
+	model := getStringAttr(attrs, schemas.AttrRequestModel)
+	// Prefer request.type attribute to keep the method stable across retries
+	method := getStringAttr(attrs, "request.type")
+	if method == "" {
+		method = llmSpan.Name
+	}
+	virtualKeyID := getStringAttr(attrs, schemas.AttrVirtualKeyID)
+	virtualKeyName := getStringAttr(attrs, schemas.AttrVirtualKeyName)
+	selectedKeyID := getStringAttr(attrs, schemas.AttrSelectedKeyID)
+	selectedKeyName := getStringAttr(attrs, schemas.AttrSelectedKeyName)
+	numberOfRetries := getIntAttr(attrs, schemas.AttrNumberOfRetries)
+	fallbackIndex := getIntAttr(attrs, schemas.AttrFallbackIndex)
+	teamID := getStringAttr(attrs, schemas.AttrTeamID)
+	teamName := getStringAttr(attrs, schemas.AttrTeamName)
+	customerID := getStringAttr(attrs, schemas.AttrCustomerID)
+	customerName := getStringAttr(attrs, schemas.AttrCustomerName)
+
+	// Build common attributes for all metrics
+	otelAttrs := BuildBifrostAttributes(BifrostAttrParams{
+		Provider:        provider,
+		Model:           model,
+		Method:          method,
+		VirtualKeyID:    virtualKeyID,
+		VirtualKeyName:  virtualKeyName,
+		SelectedKeyID:   selectedKeyID,
+		SelectedKeyName: selectedKeyName,
+		NumberOfRetries: numberOfRetries,
+		FallbackIndex:   fallbackIndex,
+		TeamID:          teamID,
+		TeamName:        teamName,
+		CustomerID:      customerID,
+		CustomerName:    customerName,
+	})
+
+	// Record upstream request count
+	m.RecordUpstreamRequest(ctx, otelAttrs...)
+
+	// Record latency (from span duration)
+	if !llmSpan.StartTime.IsZero() && !llmSpan.EndTime.IsZero() {
+		latencySeconds := llmSpan.EndTime.Sub(llmSpan.StartTime).Seconds()
+		m.RecordUpstreamLatency(ctx, latencySeconds, otelAttrs...)
+	}
+
+	// Record success or error based on span status
+	if llmSpan.Status == schemas.SpanStatusError {
+		m.RecordErrorRequest(ctx, otelAttrs...)
+	} else {
+		m.RecordSuccessRequest(ctx, otelAttrs...)
+	}
+
+	// Record token usage - try both naming conventions
+	inputTokens := getIntAttr(attrs, schemas.AttrPromptTokens)
+	if inputTokens == 0 {
+		inputTokens = getIntAttr(attrs, schemas.AttrInputTokens)
+	}
+	if inputTokens > 0 {
+		m.RecordInputTokens(ctx, int64(inputTokens), otelAttrs...)
+	}
+
+	outputTokens := getIntAttr(attrs, schemas.AttrCompletionTokens)
+	if outputTokens == 0 {
+		outputTokens = getIntAttr(attrs, schemas.AttrOutputTokens)
+	}
+	if outputTokens > 0 {
+		m.RecordOutputTokens(ctx, int64(outputTokens), otelAttrs...)
+	}
+
+	// Record cost if available
+	cost := getFloat64Attr(attrs, schemas.AttrUsageCost)
+	if cost > 0 {
+		m.RecordCost(ctx, cost, otelAttrs...)
+	}
+
+	// Record streaming latency metrics if available
+	ttft := getFloat64Attr(attrs, schemas.AttrTimeToFirstToken)
+	if ttft > 0 {
+		// Convert from nanoseconds to seconds if needed (check the unit)
+		m.RecordStreamFirstTokenLatency(ctx, ttft/1e9, otelAttrs...)
 	}
 }

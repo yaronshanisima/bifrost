@@ -118,7 +118,7 @@ func loadBuiltinPlugin(ctx context.Context, name string, pluginConfig any, bifro
 }
 
 // loadCustomPlugin loads a plugin from a shared object file
-func loadCustomPlugin(ctx context.Context, path *string, pluginConfig any, bifrostConfig *lib.Config) (schemas.BasePlugin, error) {
+func loadCustomPlugin(_ context.Context, path *string, pluginConfig any, bifrostConfig *lib.Config) (schemas.BasePlugin, error) {
 	logger.Info("loading custom plugin from path %s", *path)
 
 	plugin, err := bifrostConfig.PluginLoader.LoadPlugin(*path, pluginConfig)

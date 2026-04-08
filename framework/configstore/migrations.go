@@ -392,6 +392,9 @@ func triggerMigrations(ctx context.Context, db *gorm.DB) error {
 	if err := migrationAddFlexTierPricingColumns(ctx, db); err != nil {
 		return err
 	}
+	if err := migrationMigrateOtelConfigToProfiles(ctx, db); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -6445,6 +6448,60 @@ func migrationAddModelPricingUniqueIndex(ctx context.Context, db *gorm.DB) error
 	}})
 	if err := m.Migrate(); err != nil {
 		return fmt.Errorf("error running add_model_pricing_unique_index migration: %s", err.Error())
+	}
+	return nil
+}
+
+// migrationMigrateOtelConfigToProfiles wraps the legacy single-collector OTEL
+// plugin config into the new multi-profile shape. Old: {collector_url, protocol, ...}.
+// New: {profiles: [{collector_url, protocol, ...}]}. No-op if the row is already
+// in the new shape or the plugin is not configured.
+func migrationMigrateOtelConfigToProfiles(ctx context.Context, db *gorm.DB) error {
+	m := migrator.New(db, migrator.DefaultOptions, []*migrator.Migration{{
+		ID: "migrate_otel_config_to_profiles",
+		Migrate: func(tx *gorm.DB) error {
+			tx = tx.WithContext(ctx)
+
+			var plugin tables.TablePlugin
+			err := tx.Where("name = ?", "otel").First(&plugin).Error
+			if err != nil {
+				if err == gorm.ErrRecordNotFound {
+					return nil
+				}
+				return fmt.Errorf("failed to load otel plugin row: %w", err)
+			}
+
+			// AfterFind already decrypted ConfigJSON and unmarshaled into Config.
+			cfgMap, ok := plugin.Config.(map[string]any)
+			if !ok || len(cfgMap) == 0 {
+				return nil
+			}
+			// Already migrated.
+			if _, hasProfiles := cfgMap["profiles"]; hasProfiles {
+				return nil
+			}
+			// Old shape has collector_url at top level. If absent, nothing to migrate.
+			if _, hasCollector := cfgMap["collector_url"]; !hasCollector {
+				return nil
+			}
+
+			plugin.Config = map[string]any{
+				"profiles": []any{cfgMap},
+			}
+			// Force BeforeSave to re-serialize + re-encrypt.
+			plugin.ConfigJSON = ""
+			plugin.EncryptionStatus = tables.EncryptionStatusPlainText
+
+			if err := tx.Save(&plugin).Error; err != nil {
+				return fmt.Errorf("failed to save migrated otel config: %w", err)
+			}
+			log.Printf("[Migration] Wrapped legacy otel config into profiles[0]")
+			return nil
+		},
+		Rollback: func(tx *gorm.DB) error { return nil },
+	}})
+	if err := m.Migrate(); err != nil {
+		return fmt.Errorf("error running migrate_otel_config_to_profiles migration: %s", err.Error())
 	}
 	return nil
 }

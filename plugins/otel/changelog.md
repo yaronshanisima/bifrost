@@ -1,0 +1,1 @@
+- feat: adds support for multiple otel profiles

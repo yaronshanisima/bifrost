@@ -1454,82 +1454,101 @@
                   "type": "object",
                   "description": "Configuration for the OpenTelemetry plugin",
                   "properties": {
-                    "service_name": {
-                      "type": "string",
-                      "description": "Service name to be used for tracing",
-                      "default": "bifrost"
-                    },
-                    "collector_url": {
-                      "type": "string",
-                      "description": "URL of the OpenTelemetry collector",
-                      "oneOf": [
-                        {
-                          "format": "uri"
+                    "profiles": {
+                      "type": "array",
+                      "description": "One or more OTEL collector destinations. Each profile exports to a separate collector.",
+                      "minItems": 1,
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "enabled": {
+                            "type": "boolean",
+                            "description": "If false, this profile is skipped during export. Defaults to true.",
+                            "default": true
+                          },
+                          "service_name": {
+                            "type": "string",
+                            "description": "Service name to be used for tracing",
+                            "default": "bifrost"
+                          },
+                          "collector_url": {
+                            "type": "string",
+                            "description": "URL of the OpenTelemetry collector",
+                            "oneOf": [
+                              {
+                                "format": "uri"
+                              },
+                              {
+                                "pattern": "^[^:\\s]+:\\d+$"
+                              }
+                            ]
+                          },
+                          "trace_type": {
+                            "type": "string",
+                            "description": "Type of trace to use for the OTEL collector",
+                            "enum": [
+                              "otel"
+                            ]
+                          },
+                          "protocol": {
+                            "type": "string",
+                            "description": "Protocol to use for the OTEL collector",
+                            "enum": [
+                              "http",
+                              "grpc"
+                            ]
+                          },
+                          "metrics_enabled": {
+                            "type": "boolean",
+                            "description": "Enable push-based metrics export via OTLP. Recommended for multi-node cluster deployments.",
+                            "default": false
+                          },
+                          "metrics_endpoint": {
+                            "type": "string",
+                            "description": "OTLP metrics endpoint URL (e.g., http://otel-collector:4318/v1/metrics for HTTP or otel-collector:4317 for gRPC)",
+                            "oneOf": [
+                              {
+                                "format": "uri"
+                              },
+                              {
+                                "pattern": "^[^:\\s]+:\\d+$"
+                              }
+                            ]
+                          },
+                          "metrics_push_interval": {
+                            "type": "integer",
+                            "description": "Metrics push interval in seconds",
+                            "default": 15,
+                            "minimum": 1,
+                            "maximum": 300
+                          },
+                          "headers": {
+                            "type": "object",
+                            "additionalProperties": {
+                              "type": "string"
+                            },
+                            "description": "Custom headers for the collector. Supports env.VAR_NAME prefix for environment variable substitution."
+                          },
+                          "tls_ca_cert": {
+                            "type": "string",
+                            "description": "Path to TLS CA certificate file"
+                          },
+                          "insecure": {
+                            "type": "boolean",
+                            "description": "Skip TLS verification (ignored if tls_ca_cert is set)"
+                          }
                         },
-                        {
-                          "pattern": "^[^:\\s]+:\\d+$"
-                        }
-                      ]
-                    },
-                    "trace_type": {
-                      "type": "string",
-                      "description": "Type of trace to use for the OTEL collector",
-                      "enum": [
-                        "otel"
-                      ]
-                    },
-                    "protocol": {
-                      "type": "string",
-                      "description": "Protocol to use for the OTEL collector",
-                      "enum": [
-                        "http",
-                        "grpc"
-                      ]
-                    },
-                    "metrics_enabled": {
-                      "type": "boolean",
-                      "description": "Enable push-based metrics export via OTLP. Recommended for multi-node cluster deployments.",
-                      "default": false
-                    },
-                    "metrics_endpoint": {
-                      "type": "string",
-                      "description": "OTLP metrics endpoint URL (e.g., http://otel-collector:4318/v1/metrics for HTTP or otel-collector:4317 for gRPC)",
-                      "oneOf": [
-                        {
-                          "format": "uri"
-                        },
-                        {
-                          "pattern": "^[^:\\s]+:\\d+$"
-                        }
-                      ]
-                    },
-                    "metrics_push_interval": {
-                      "type": "integer",
-                      "description": "Metrics push interval in seconds",
-                      "default": 15,
-                      "minimum": 1,
-                      "maximum": 300
-                    },
-                    "headers": {
-                      "type": "object",
-                      "additionalProperties": {
-                        "type": "string"
-                      },
-                      "description": "Custom headers for the collector. Supports env.VAR_NAME prefix for environment variable substitution."
-                    },
-                    "tls_ca_cert": {
-                      "type": "string",
-                      "description": "Path to TLS CA certificate file"
-                    },
-                    "insecure": {
-                      "type": "boolean",
-                      "description": "Skip TLS verification (ignored if tls_ca_cert is set)"
+                        "required": [
+                          "collector_url",
+                          "trace_type",
+                          "protocol"
+                        ],
+                        "additionalProperties": false
+                      }
                     }
                   },
                   "required": [
-                    "collector_url",
-                    "trace_type",
-                    "protocol"
+                    "profiles"
                   ],
                   "additionalProperties": false
                 }

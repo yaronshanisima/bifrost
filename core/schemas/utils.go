@@ -400,6 +400,51 @@ func SafeExtractInt(value interface{}) (int, bool) {
 	}
 }
 
+// SafeExtractInt64 safely extracts an int64 value from an any with type checking
+func SafeExtractInt64(value any) (int64, bool) {
+	if value == nil {
+		return 0, false
+	}
+	switch v := value.(type) {
+	case int:
+		return int64(v), true
+	case int8:
+		return int64(v), true
+	case int16:
+		return int64(v), true
+	case int32:
+		return int64(v), true
+	case int64:
+		return v, true
+	case uint:
+		return int64(v), true
+	case uint8:
+		return int64(v), true
+	case uint16:
+		return int64(v), true
+	case uint32:
+		return int64(v), true
+	case uint64:
+		return int64(v), true
+	case float32:
+		return int64(v), true
+	case float64:
+		return int64(v), true
+	case json.Number:
+		if intVal, err := v.Int64(); err == nil {
+			return int64(intVal), true
+		}
+		return 0, false
+	case string:
+		if intVal, err := strconv.ParseInt(v, 10, 64); err == nil {
+			return intVal, true
+		}
+		return 0, false
+	default:
+		return 0, false
+	}
+}
+
 // SafeExtractFloat64 safely extracts a float64 value from an interface{} with type checking
 func SafeExtractFloat64(value interface{}) (float64, bool) {
 	if value == nil {
@@ -835,8 +880,8 @@ func DeepCopyChatTool(original ChatTool) ChatTool {
 
 		if original.Function.Parameters != nil {
 			copyParams := &ToolFunctionParameters{
-				Type:     original.Function.Parameters.Type,
-				keyOrder: original.Function.Parameters.keyOrder,
+				Type:                original.Function.Parameters.Type,
+				keyOrder:            original.Function.Parameters.keyOrder,
 				explicitEmptyObject: original.Function.Parameters.explicitEmptyObject,
 			}
 

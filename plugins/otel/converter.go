@@ -70,10 +70,10 @@ func hexToBytes(hexStr string, length int) []byte {
 }
 
 // convertTraceToResourceSpan converts a Bifrost trace to OTEL ResourceSpan
-func (p *OtelPlugin) convertTraceToResourceSpan(trace *schemas.Trace) *ResourceSpan {
+func (p *OtelProfile) convertTraceToResourceSpan(trace *schemas.Trace) *ResourceSpan {
 	otelSpans := make([]*Span, 0, len(trace.Spans))
 	for _, span := range trace.Spans {
-		otelSpans = append(otelSpans, p.convertSpanToOTELSpan(trace.TraceID, span))
+		otelSpans = append(otelSpans, convertSpanToOTELSpan(trace.TraceID, span))
 	}
 
 	return &ResourceSpan{
@@ -81,14 +81,14 @@ func (p *OtelPlugin) convertTraceToResourceSpan(trace *schemas.Trace) *ResourceS
 			Attributes: p.getResourceAttributes(),
 		},
 		ScopeSpans: []*ScopeSpan{{
-			Scope:  p.getInstrumentationScope(),
-			Spans:  otelSpans,
+			Scope: p.getInstrumentationScope(),
+			Spans: otelSpans,
 		}},
 	}
 }
 
 // convertSpanToOTELSpan converts a single Bifrost span to OTEL format
-func (p *OtelPlugin) convertSpanToOTELSpan(traceID string, span *schemas.Span) *Span {
+func convertSpanToOTELSpan(traceID string, span *schemas.Span) *Span {
 	otelSpan := &Span{
 		TraceId:           hexToBytes(traceID, 16),
 		SpanId:            hexToBytes(span.SpanID, 8),
@@ -110,7 +110,7 @@ func (p *OtelPlugin) convertSpanToOTELSpan(traceID string, span *schemas.Span) *
 }
 
 // getResourceAttributes returns the resource attributes for the OTEL span
-func (p *OtelPlugin) getResourceAttributes() []*KeyValue {
+func (p *OtelProfile) getResourceAttributes() []*KeyValue {
 	attrs := []*KeyValue{
 		kvStr("service.name", p.serviceName),
 		kvStr("service.version", p.bifrostVersion),
@@ -123,7 +123,7 @@ func (p *OtelPlugin) getResourceAttributes() []*KeyValue {
 }
 
 // getInstrumentationScope returns the instrumentation scope for OTEL
-func (p *OtelPlugin) getInstrumentationScope() *commonpb.InstrumentationScope {
+func (p *OtelProfile) getInstrumentationScope() *commonpb.InstrumentationScope {
 	return &commonpb.InstrumentationScope{
 		Name:    p.serviceName,
 		Version: p.bifrostVersion,
@@ -156,22 +156,18 @@ func anyToKeyValue(key string, value any) *KeyValue {
 			return nil
 		}
 		return kvStr(key, v)
-	case int:
-		return kvInt(key, int64(v))
-	case int32:
-		return kvInt(key, int64(v))
-	case int64:
-		return kvInt(key, v)
-	case uint:
-		return kvInt(key, int64(v))
-	case uint32:
-		return kvInt(key, int64(v))
-	case uint64:
-		return kvInt(key, int64(v))
-	case float32:
-		return kvDbl(key, float64(v))
-	case float64:
-		return kvDbl(key, v)
+	case int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64:
+		intValue, ok := schemas.SafeExtractInt64(v)
+		if !ok {
+			return nil
+		}
+		return kvInt(key, intValue)
+	case float32, float64:
+		floatValue, ok := schemas.SafeExtractFloat64(v)
+		if !ok {
+			return nil
+		}
+		return kvDbl(key, floatValue)
 	case bool:
 		return kvBool(key, v)
 	case []string:
@@ -184,32 +180,29 @@ func anyToKeyValue(key string, value any) *KeyValue {
 		}
 		return kvAny(key, arrValue(vals...))
 	case []int:
-		if len(v) == 0 {
-			return nil
-		}
-		vals := make([]*AnyValue, len(v))
-		for i, n := range v {
-			vals[i] = &AnyValue{Value: &IntValue{IntValue: int64(n)}}
-		}
-		return kvAny(key, arrValue(vals...))
+		return intSliceToKeyValue(key, v)
+	case []int8:
+		return intSliceToKeyValue(key, v)
+	case []int16:
+		return intSliceToKeyValue(key, v)
+	case []int32:
+		return intSliceToKeyValue(key, v)
 	case []int64:
-		if len(v) == 0 {
-			return nil
-		}
-		vals := make([]*AnyValue, len(v))
-		for i, n := range v {
-			vals[i] = &AnyValue{Value: &IntValue{IntValue: n}}
-		}
-		return kvAny(key, arrValue(vals...))
+		return intSliceToKeyValue(key, v)
+	case []uint:
+		return intSliceToKeyValue(key, v)
+	case []uint8:
+		return intSliceToKeyValue(key, v)
+	case []uint16:
+		return intSliceToKeyValue(key, v)
+	case []uint32:
+		return intSliceToKeyValue(key, v)
+	case []uint64:
+		return intSliceToKeyValue(key, v)
+	case []float32:
+		return floatSliceToAttribute(key, v)
 	case []float64:
-		if len(v) == 0 {
-			return nil
-		}
-		vals := make([]*AnyValue, len(v))
-		for i, n := range v {
-			vals[i] = &AnyValue{Value: &DoubleValue{DoubleValue: n}}
-		}
-		return kvAny(key, arrValue(vals...))
+		return floatSliceToAttribute(key, v)
 	case map[string]any:
 		if len(v) == 0 {
 			return nil
@@ -226,6 +219,30 @@ func anyToKeyValue(key string, value any) *KeyValue {
 		// For any other type, convert to string
 		return kvStr(key, fmt.Sprintf("%v", v))
 	}
+}
+
+func intSliceToKeyValue[T int | int8 | int16 | int32 | int64 | uint | uint8 | uint16 | uint32 | uint64](key string, slice []T) *KeyValue {
+	if len(slice) == 0 {
+		return nil
+	}
+	vals := make([]*AnyValue, len(slice))
+	for i, n := range slice {
+		iv, _ := schemas.SafeExtractInt64(n)
+		vals[i] = &AnyValue{Value: &IntValue{IntValue: iv}}
+	}
+	return kvAny(key, arrValue(vals...))
+}
+
+func floatSliceToAttribute[T float32 | float64](key string, slice []T) *KeyValue {
+	if len(slice) == 0 {
+		return nil
+	}
+	vals := make([]*AnyValue, len(slice))
+	for i, n := range slice {
+		fv, _ := schemas.SafeExtractFloat64(n)
+		vals[i] = &AnyValue{Value: &DoubleValue{DoubleValue: fv}}
+	}
+	return kvAny(key, arrValue(vals...))
 }
 
 // convertSpanKind maps Bifrost SpanKind to OTEL SpanKind
