@@ -441,6 +441,13 @@ export interface ImageVariationInput {
 }
 
 // Main LogEntry interface matching backend
+export interface KeyAttemptRecord {
+	attempt: number;
+	key_id: string;
+	key_name: string;
+	fail_reason?: string | null; // null/undefined on the final (successful or last) attempt
+}
+
 export interface LogEntry {
 	id: string;
 	object: string; // text.completion, chat.completion, embedding, audio.speech, audio.transcription
@@ -451,6 +458,7 @@ export interface LogEntry {
 	alias?: string; // Set when model was resolved via alias mapping; the original name the caller used
 	number_of_retries: number;
 	fallback_index: number;
+	attempt_trail?: KeyAttemptRecord[]; // Per-attempt key selection history (v1.5.0-prerelease4+)
 	selected_key_id: string;
 	team_name?: string;
 	team_id?: string;

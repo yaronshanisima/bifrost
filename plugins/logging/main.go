@@ -188,6 +188,7 @@ type LogMessage struct {
 	FallbackIndex      int                                // Fallback index
 	SelectedKeyID      string                             // Selected key ID
 	SelectedKeyName    string                             // Selected key name
+	AttemptTrail       []schemas.KeyAttemptRecord         // Per-attempt key selection history
 	VirtualKeyID       string                             // Virtual key ID
 	VirtualKeyName     string                             // Virtual key name
 	RoutingEnginesUsed []string                           // List of routing engines used
@@ -692,6 +693,7 @@ func (p *LoggerPlugin) PostLLMHook(ctx *schemas.BifrostContext, result *schemas.
 	businessUnitID := bifrost.GetStringFromContext(ctx, schemas.BifrostContextKeyGovernanceBusinessUnitID)
 	businessUnitName := bifrost.GetStringFromContext(ctx, schemas.BifrostContextKeyGovernanceBusinessUnitName)
 	numberOfRetries := bifrost.GetIntFromContext(ctx, schemas.BifrostContextKeyNumberOfRetries)
+	attemptTrail, _ := ctx.Value(schemas.BifrostContextKeyAttemptTrail).([]schemas.KeyAttemptRecord)
 
 	requestType, _, originalModelRequested, resolvedModelUsed := bifrost.GetResponseFields(result, bifrostErr)
 	shouldStoreRaw, _ := ctx.Value(schemas.BifrostContextKeyShouldStoreRawInLogs).(bool)
@@ -767,7 +769,7 @@ func (p *LoggerPlugin) PostLLMHook(ctx *schemas.BifrostContext, result *schemas.
 	if result != nil {
 		latency = result.GetExtraFields().Latency
 	}
-	applyOutputFieldsToEntry(entry, selectedKeyID, selectedKeyName, virtualKeyID, virtualKeyName, routingRuleID, routingRuleName, teamID, teamName, customerID, customerName, userID, businessUnitID, businessUnitName, numberOfRetries, latency)
+	applyOutputFieldsToEntry(entry, selectedKeyID, selectedKeyName, virtualKeyID, virtualKeyName, routingRuleID, routingRuleName, teamID, teamName, customerID, customerName, userID, businessUnitID, businessUnitName, numberOfRetries, latency, attemptTrail)
 	entry.MetadataParsed = pending.InitialData.Metadata
 	entry.MetadataParsed = mergeRealtimeMetadata(entry.MetadataParsed, ctx)
 	entry.RoutingEngineLogs = routingEngineLogs
@@ -904,9 +906,11 @@ func (p *LoggerPlugin) PostLLMHook(ctx *schemas.BifrostContext, result *schemas.
 	}
 
 	// Pre-apply denormalized fields for WebSocket callback enrichment
-	entry.SelectedKey = &schemas.Key{
-		ID:   entry.SelectedKeyID,
-		Name: entry.SelectedKeyName,
+	if entry.SelectedKeyID != nil && entry.SelectedKeyName != nil {
+		entry.SelectedKey = &schemas.Key{
+			ID:   *entry.SelectedKeyID,
+			Name: *entry.SelectedKeyName,
+		}
 	}
 	if entry.VirtualKeyID != nil && entry.VirtualKeyName != nil {
 		entry.VirtualKey = &tables.TableVirtualKey{

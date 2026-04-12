@@ -148,8 +148,12 @@ func (p *LoggerPlugin) updateLogEntry(
 	data *UpdateLogData,
 ) error {
 	updates := make(map[string]interface{})
-	updates["selected_key_id"] = selectedKeyID
-	updates["selected_key_name"] = selectedKeyName
+	if selectedKeyID != "" {
+		updates["selected_key_id"] = selectedKeyID
+	}
+	if selectedKeyName != "" {
+		updates["selected_key_name"] = selectedKeyName
+	}
 	if latency != 0 {
 		updates["latency"] = float64(latency)
 	}
@@ -1438,9 +1442,14 @@ func pricingScopesForLog(logEntry *logstore.Log) modelcatalog.PricingLookupScope
 		virtualKeyID = *logEntry.VirtualKeyID
 	}
 
+	selectedKeyID := ""
+	if logEntry.SelectedKeyID != nil {
+		selectedKeyID = *logEntry.SelectedKeyID
+	}
+
 	return modelcatalog.PricingLookupScopes{
 		Provider:      logEntry.Provider,
-		SelectedKeyID: logEntry.SelectedKeyID,
+		SelectedKeyID: selectedKeyID,
 		VirtualKeyID:  virtualKeyID,
 	}
 }

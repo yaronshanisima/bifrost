@@ -230,6 +230,12 @@ func triggerMigrations(ctx context.Context, db *gorm.DB) error {
 	if err := migrationAddHasObjectColumn(ctx, db); err != nil {
 		return err
 	}
+	if err := migrationAddAttemptTrailColumn(ctx, db); err != nil {
+		return err
+	}
+	if err := migrationMakeSelectedKeyColumnsNullable(ctx, db); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -2456,6 +2462,90 @@ func migrationAddOCROutputColumn(ctx context.Context, db *gorm.DB) error {
 	err := m.Migrate()
 	if err != nil {
 		return fmt.Errorf("error while adding ocr output column: %s", err.Error())
+	}
+	return nil
+}
+
+// migrationAddAttemptTrailColumn adds the attempt_trail column to the Log table.
+// This column stores a JSON-serialized []schemas.KeyAttemptRecord capturing the per-attempt
+// key selection history for requests that use key-based providers.
+func migrationAddAttemptTrailColumn(ctx context.Context, db *gorm.DB) error {
+	opts := *migrator.DefaultOptions
+	opts.UseTransaction = true
+	m := migrator.New(db, &opts, []*migrator.Migration{{
+		ID: "logs_add_attempt_trail_column",
+		Migrate: func(tx *gorm.DB) error {
+			tx = tx.WithContext(ctx)
+			migrator := tx.Migrator()
+			if !migrator.HasColumn(&Log{}, "attempt_trail") {
+				if err := migrator.AddColumn(&Log{}, "attempt_trail"); err != nil {
+					return err
+				}
+			}
+			return nil
+		},
+		Rollback: func(tx *gorm.DB) error {
+			tx = tx.WithContext(ctx)
+			migrator := tx.Migrator()
+			if migrator.HasColumn(&Log{}, "attempt_trail") {
+				if err := migrator.DropColumn(&Log{}, "attempt_trail"); err != nil {
+					return err
+				}
+			}
+			return nil
+		},
+	}})
+	err := m.Migrate()
+	if err != nil {
+		return fmt.Errorf("error while adding attempt trail column: %s", err.Error())
+	}
+	return nil
+}
+
+// migrationMakeSelectedKeyColumnsNullable converts selected_key_id and selected_key_name
+// from NOT NULL varchar to nullable varchar. As of v1.5.0-prerelease4+, these fields are
+// only populated when a request succeeds; final errors leave them NULL so callers can
+// distinguish "request succeeded on this key" from "all attempts failed".
+func migrationMakeSelectedKeyColumnsNullable(ctx context.Context, db *gorm.DB) error {
+	opts := *migrator.DefaultOptions
+	opts.UseTransaction = true
+	m := migrator.New(db, &opts, []*migrator.Migration{{
+		ID: "logs_make_selected_key_columns_nullable",
+		Migrate: func(tx *gorm.DB) error {
+			tx = tx.WithContext(ctx)
+			// PostgreSQL enforces NOT NULL — drop the constraint explicitly if present.
+			// SQLite does not enforce NOT NULL on columns added via ALTER TABLE ADD COLUMN,
+			// so no schema change is needed there.
+			// No backfill required: selected_key_id was always populated on every previous
+			// request (keyed providers always wrote a real key ID), so there are no
+			// existing rows with an empty value that need converting to NULL.
+			if tx.Dialector.Name() == "postgres" {
+				for _, col := range []string{"selected_key_id", "selected_key_name"} {
+					var isNullable string
+					if err := tx.Raw(
+						"SELECT is_nullable FROM information_schema.columns WHERE table_name = 'logs' AND column_name = ?",
+						col,
+					).Scan(&isNullable).Error; err != nil {
+						return err
+					}
+					if isNullable == "NO" {
+						if err := tx.Exec("ALTER TABLE logs ALTER COLUMN " + col + " DROP NOT NULL").Error; err != nil {
+							return err
+						}
+					}
+				}
+			}
+			return nil
+		},
+		Rollback: func(tx *gorm.DB) error {
+			// No clean rollback: existing NULLs cannot be distinguished from
+			// "was intentionally empty" without the original data.
+			return nil
+		},
+	}})
+	err := m.Migrate()
+	if err != nil {
+		return fmt.Errorf("error while making selected_key columns nullable: %s", err.Error())
 	}
 	return nil
 }

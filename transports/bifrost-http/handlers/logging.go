@@ -160,8 +160,8 @@ func (h *LoggingHandler) getLogSessionByID(ctx *fasthttp.RequestCtx) {
 	virtualKeyIDs := make(map[string]struct{})
 	routingRuleIDs := make(map[string]struct{})
 	for _, log := range result.Logs {
-		if log.SelectedKeyID != "" {
-			selectedKeyIDs[log.SelectedKeyID] = struct{}{}
+		if log.SelectedKeyID != nil && *log.SelectedKeyID != "" {
+			selectedKeyIDs[*log.SelectedKeyID] = struct{}{}
 		}
 		if log.VirtualKeyID != nil && *log.VirtualKeyID != "" {
 			virtualKeyIDs[*log.VirtualKeyID] = struct{}{}
@@ -187,8 +187,8 @@ func (h *LoggingHandler) getLogSessionByID(ctx *fasthttp.RequestCtx) {
 	redactedRoutingRules := h.redactedKeysManager.GetAllRedactedRoutingRules(ctx, toSlice(routingRuleIDs))
 
 	for i, log := range result.Logs {
-		if log.SelectedKeyID != "" && log.SelectedKeyName != "" {
-			result.Logs[i].SelectedKey = findRedactedKey(redactedKeys, log.SelectedKeyID, log.SelectedKeyName)
+		if log.SelectedKeyID != nil && log.SelectedKeyName != nil && *log.SelectedKeyID != "" && *log.SelectedKeyName != "" {
+			result.Logs[i].SelectedKey = findRedactedKey(redactedKeys, *log.SelectedKeyID, *log.SelectedKeyName)
 		}
 		if log.VirtualKeyID != nil && log.VirtualKeyName != nil && *log.VirtualKeyID != "" && *log.VirtualKeyName != "" {
 			result.Logs[i].VirtualKey = findRedactedVirtualKey(redactedVirtualKeys, *log.VirtualKeyID, *log.VirtualKeyName)
@@ -371,8 +371,8 @@ func (h *LoggingHandler) getLogs(ctx *fasthttp.RequestCtx) {
 	virtualKeyIDs := make(map[string]struct{})
 	routingRuleIDs := make(map[string]struct{})
 	for _, log := range result.Logs {
-		if log.SelectedKeyID != "" {
-			selectedKeyIDs[log.SelectedKeyID] = struct{}{}
+		if log.SelectedKeyID != nil && *log.SelectedKeyID != "" {
+			selectedKeyIDs[*log.SelectedKeyID] = struct{}{}
 		}
 		if log.VirtualKeyID != nil && *log.VirtualKeyID != "" {
 			virtualKeyIDs[*log.VirtualKeyID] = struct{}{}
@@ -399,8 +399,8 @@ func (h *LoggingHandler) getLogs(ctx *fasthttp.RequestCtx) {
 
 	// Add selected key, virtual key, and routing rule to the result
 	for i, log := range result.Logs {
-		if log.SelectedKeyID != "" && log.SelectedKeyName != "" {
-			result.Logs[i].SelectedKey = findRedactedKey(redactedKeys, log.SelectedKeyID, log.SelectedKeyName)
+		if log.SelectedKeyID != nil && log.SelectedKeyName != nil && *log.SelectedKeyID != "" && *log.SelectedKeyName != "" {
+			result.Logs[i].SelectedKey = findRedactedKey(redactedKeys, *log.SelectedKeyID, *log.SelectedKeyName)
 		}
 		if log.VirtualKeyID != nil && log.VirtualKeyName != nil && *log.VirtualKeyID != "" && *log.VirtualKeyName != "" {
 			result.Logs[i].VirtualKey = findRedactedVirtualKey(redactedVirtualKeys, *log.VirtualKeyID, *log.VirtualKeyName)
@@ -433,9 +433,9 @@ func (h *LoggingHandler) getLogByID(ctx *fasthttp.RequestCtx) {
 
 	// Assemble virtual key, selected key, and routing rule objects (gorm:"-" fields not
 	// populated by GetLog) so the detail view receives the same structure as the list endpoint.
-	if log.SelectedKeyID != "" && log.SelectedKeyName != "" {
-		redactedKeys := h.redactedKeysManager.GetAllRedactedKeys(ctx, []string{log.SelectedKeyID})
-		log.SelectedKey = findRedactedKey(redactedKeys, log.SelectedKeyID, log.SelectedKeyName)
+	if log.SelectedKeyID != nil && log.SelectedKeyName != nil && *log.SelectedKeyID != "" && *log.SelectedKeyName != "" {
+		redactedKeys := h.redactedKeysManager.GetAllRedactedKeys(ctx, []string{*log.SelectedKeyID})
+		log.SelectedKey = findRedactedKey(redactedKeys, *log.SelectedKeyID, *log.SelectedKeyName)
 	}
 	if log.VirtualKeyID != nil && log.VirtualKeyName != nil && *log.VirtualKeyID != "" && *log.VirtualKeyName != "" {
 		redactedVirtualKeys := h.redactedKeysManager.GetAllRedactedVirtualKeys(ctx, []string{*log.VirtualKeyID})

@@ -388,8 +388,8 @@ func BuildTags(l *Log) map[string]string {
 	if l.VirtualKeyID != nil && *l.VirtualKeyID != "" {
 		tags["virtual_key_id"] = truncateTag(*l.VirtualKeyID, 256)
 	}
-	if l.SelectedKeyID != "" {
-		tags["selected_key_id"] = truncateTag(l.SelectedKeyID, 256)
+	if l.SelectedKeyID != nil && *l.SelectedKeyID != "" {
+		tags["selected_key_id"] = truncateTag(*l.SelectedKeyID, 256)
 	}
 	if l.RoutingRuleID != nil && *l.RoutingRuleID != "" {
 		tags["routing_rule_id"] = truncateTag(*l.RoutingRuleID, 256)
