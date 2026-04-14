@@ -125,6 +125,10 @@ func (e *AsyncJobExecutor) executeJob(jobID string, resultTTL int, operation Asy
 		ctx.SetValue(k, v)
 	}
 
+	// Clearing both gives the async job a clean, independent trace lifecycle.
+	ctx.ClearValue(schemas.BifrostContextKeyTraceID)
+	ctx.ClearValue(schemas.BifrostContextKeyParentSpanID)
+
 	markFailed := func(msg string) {
 		now := time.Now().UTC()
 		expiresAt := now.Add(time.Duration(resultTTL) * time.Second)
