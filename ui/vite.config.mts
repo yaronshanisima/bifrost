@@ -3,9 +3,11 @@ import { tanstackRouter } from "@tanstack/router-plugin/vite";
 import react from "@vitejs/plugin-react";
 import fs from "node:fs";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { defineConfig } from "vite";
 import checker from "vite-plugin-checker";
 
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const isEnterpriseBuild = fs.existsSync(path.join(__dirname, "app", "enterprise"));
 
 export default defineConfig({
@@ -33,6 +35,10 @@ export default defineConfig({
 		}),
 	],
 	resolve: {
+		// Enterprise UI source is symlinked into ./app/enterprise; preserving symlinks
+		// keeps module resolution rooted here so deps like zod / @phosphor-icons/react
+		// resolve against this ui/node_modules rather than the symlink target's tree.
+		preserveSymlinks: true,
 		alias: {
 			"@": path.resolve(__dirname),
 			"@enterprise": isEnterpriseBuild

@@ -80,25 +80,10 @@ icon: "scroll"
 
 ```json
 {
-  "enterprise": {
-    "audit_logs": {
-      "enabled": true,
-      "retention": {
-        "duration": "365d",
-        "archive_after": "90d"
-      },
-      "capture": {
-        "authentication": true,
-        "authorization": true,
-        "configuration_changes": true,
-        "data_access": true,
-        "security_events": true
-      },
-      "immutability": {
-        "enabled": true,
-        "verification_method": "cryptographic_hash"
-      }
-    }
+  "audit_logs": {
+    "disabled": false,
+    "hmac_key": "env.AUDIT_HMAC_KEY",
+    "retention_days": 365
   }
 }
 ```

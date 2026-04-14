@@ -248,7 +248,6 @@
                 ]
               },
               "enterprise/mcp-with-fa",
-              "enterprise/vault-support",
               "enterprise/invpc-deployments",
               "enterprise/custom-plugins",
               "enterprise/audit-logs",
@@ -336,16 +335,6 @@
               "integrations/guardrails/azure-content-safety",
               "integrations/guardrails/grayswan",
               "integrations/guardrails/patronus-ai"
-            ]
-          },
-          {
-            "group": "Secret Management (Vaults)",
-            "icon": "vault",
-            "pages": [
-              "integrations/vaults/hashicorp-vault",
-              "integrations/vaults/aws-secrets-manager",
-              "integrations/vaults/google-secret-manager",
-              "integrations/vaults/azure-key-vault"
             ]
           },
           {

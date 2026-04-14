@@ -14,6 +14,7 @@ This guide walks you through configuring Okta as your identity provider for Bifr
 - Bifrost Enterprise deployed and accessible
 - The redirect URI for your Bifrost instance (e.g., `https://your-bifrost-domain.com/login`)
 - Ensure you have created all the [roles in Bifrost](/enterprise/rbac) that you are aiming to map to with Okta.
+
 ---
 
 ## Step 1: Create an OIDC Application
@@ -47,20 +48,25 @@ Configure the following settings for your application:
 </Frame>
 
 **General Settings:**
+
 - **App integration name**: `Bifrost Enterprise`
 - **Logo** (optional): You can upload the Bifrost logo from [https://www.getmaxim.ai/bifrost/bifrost-logo-only.png](https://www.getmaxim.ai/bifrost/bifrost-logo-only.png)
 
 **Grant type:**
+
 - Enable **Authorization Code**
 - Enable **Refresh Token**
 
 **Sign-in redirect URIs:**
+
 - Add your Bifrost login callback URL: `https://your-bifrost-domain.com/login`
 
 **Sign-out redirect URIs (Optional):**
+
 - Add your Bifrost base URL: `https://your-bifrost-domain.com`
 
 **Assignments:**
+
 - Choose **Skip group assignment for now** (we'll configure this later)
 
 6. Click **Save** to create the application
@@ -71,10 +77,11 @@ Configure the following settings for your application:
 
 ---
 
-## Step 3: Create Custom Role Attribute 
+## Step 3: Create Custom Role Attribute
 
 <Note>
-You can use both roles and/or groups for assigning roles to users. You can learn more about [RBAC](/enterprise/rbac) docs. Roles take precedence over groups in role assignment.
+  You can map any attribute (include custom roles/groups) to assign roles to users. You can learn more about
+  [RBAC](/enterprise/rbac) docs.
 </Note>
 
 To map Okta users to Bifrost roles (Admin, Developer, Viewer), you need to create a custom attribute.
@@ -93,14 +100,14 @@ To map Okta users to Bifrost roles (Admin, Developer, Viewer), you need to creat
   <img src="/media/user-provisioning/okta-custom-attribute-creation.png" alt="Add custom attribute for bifrostRole" />
 </Frame>
 
-| Field | Value |
-|-------|-------|
-| **Data type** | string |
-| **Display name** | bifrostRole |
-| **Variable name** | bifrostRole |
-| **Enum** | Check "Define enumerated list of values" |
+| Field                 | Value                                                       |
+| --------------------- | ----------------------------------------------------------- |
+| **Data type**         | string                                                      |
+| **Display name**      | bifrostRole                                                 |
+| **Variable name**     | bifrostRole                                                 |
+| **Enum**              | Check "Define enumerated list of values"                    |
 | **Attribute members** | Admin → `admin`, Developer → `developer`, Viewer → `viewer` |
-| **Attribute type** | Personal |
+| **Attribute type**    | Personal                                                    |
 
 5. Click **Save**
 
@@ -121,18 +128,19 @@ Configure the authorization server to include the role in the access token.
 
 Configure the claim:
 
-| Field | Value |
-|-------|-------|
-| **Name** | `role` |
+| Field                     | Value                |
+| ------------------------- | -------------------- |
+| **Name**                  | `role`               |
 | **Include in token type** | Access Token, Always |
-| **Value type** | Expression |
-| **Value** | `user.bifrostRole` |
-| **Include in** | Any scope |
+| **Value type**            | Expression           |
+| **Value**                 | `user.bifrostRole`   |
+| **Include in**            | Any scope            |
 
 5. Click **Create**
 
 <Note>
-If you named your custom attribute differently, update the Value expression accordingly (e.g., `user.yourAttributeName`).
+  If you named your custom attribute differently, update the Value expression accordingly (e.g.,
+  `user.yourAttributeName`).
 </Note>
 
 ---
@@ -140,6 +148,7 @@ If you named your custom attribute differently, update the Value expression acco
 ## Step 5: Configure Groups
 
 Bifrost can automatically sync Okta groups for two purposes:
+
 - **Team synchronization** — Groups are synced as Bifrost teams
 - **Role mapping** — Groups can be mapped to Bifrost roles (Admin, Developer, Viewer) using Group-to-Role Mappings in the Bifrost UI.
 
@@ -159,7 +168,8 @@ Bifrost can automatically sync Okta groups for two purposes:
 </Frame>
 
 <Note>
-Use a consistent naming convention for your groups. This makes it easier to configure group filters and role mappings later.
+  Use a consistent naming convention for your groups. This makes it easier to configure group filters and role mappings
+  later.
 </Note>
 
 ### Add Groups Claim to Tokens
@@ -173,13 +183,13 @@ This approach adds the groups claim through your authorization server, providing
 
 Configure the groups claim:
 
-| Field | Value |
-|-------|-------|
-| **Name** | `groups` |
-| **Include in token type** | ID Token, Always |
-| **Value type** | Groups |
-| **Filter** | Matches regex: `.*` (or specify a prefix like `bifrost-.*`) |
-| **Include in** | Any scope |
+| Field                     | Value                                                       |
+| ------------------------- | ----------------------------------------------------------- |
+| **Name**                  | `groups`                                                    |
+| **Include in token type** | ID Token, Always                                            |
+| **Value type**            | Groups                                                      |
+| **Filter**                | Matches regex: `.*` (or specify a prefix like `bifrost-.*`) |
+| **Include in**            | Any scope                                                   |
 
 5. Click **Create**
 
@@ -206,7 +216,10 @@ For each user, set their **bifrostRole** (if you are planning to do role-level m
 4. Click **Save and Go Back**
 
 <Note>
-Role claims are available only when you configure custom claims on your authorization server. Ensure you add role claims to your chosen authorization server (for example, `/oauth2/default`) to enable RBAC. If you skipped Steps 4-7, the first user to sign in automatically receives the **Admin** role and can manage RBAC for all subsequent users through the Bifrost dashboard.
+  Role claims are available only when you configure custom claims on your authorization server. Ensure you add role
+  claims to your chosen authorization server (for example, `/oauth2/default`) to enable RBAC. If you skipped Steps 4-7,
+  the first user to sign in automatically receives the **Admin** role and can manage RBAC for all subsequent users
+  through the Bifrost dashboard.
 </Note>
 
 ---
@@ -216,7 +229,7 @@ Role claims are available only when you configure custom claims on your authoriz
 To create an API token, navigate to **Security** → **API** → **Tokens**.
 
 <Frame>
-<img src="/media/user-provisioning/okta-tokens-screen.png" alt="Okta API tokens screen" />
+  <img src="/media/user-provisioning/okta-tokens-screen.png" alt="Okta API tokens screen" />
 </Frame>
 
 1. Click on "Create token"
@@ -237,11 +250,11 @@ Now configure Bifrost to use Okta as the identity provider.
 2. Select **Okta** as the SCIM Provider
 3. Enter the following configuration:
 
-| Field | Value |
-|-------|-------|
-| **Client ID** | Your Okta application Client ID |
-| **Issuer URL** | Issuer URL |
-| **Audience** | Your API audience (e.g., `api://default` or custom) |
+| Field             | Value                                                                |
+| ----------------- | -------------------------------------------------------------------- |
+| **Client ID**     | Your Okta application Client ID                                      |
+| **Issuer URL**    | Issuer URL                                                           |
+| **Audience**      | Your API audience (e.g., `api://default` or custom)                  |
 | **Client Secret** | Your Okta application Client Secret (optional, for token revocation) |
 
 4. Toggle **Enabled** to activate the provider
@@ -258,35 +271,38 @@ If you configured groups in Okta (Step 5), you can map Okta group names directly
 5. Repeat for each group you want to map
 
 <Frame>
-  <img src="/media/user-provisioning/okta-group-claim-mapping.png" alt="Group-to-Role Mappings configuration in Bifrost" />
+  <img
+    src="/media/user-provisioning/okta-group-claim-mapping.png"
+    alt="Group-to-Role Mappings configuration in Bifrost"
+  />
 </Frame>
 
-| Group Claim Name | Role |
-|------------------|------|
-| `bifrost-staging-admins` | Admin |
+| Group Claim Name          | Role   |
+| ------------------------- | ------ |
+| `bifrost-staging-admins`  | Admin  |
 | `bifrost-staging-viewers` | Viewer |
 
 <Note>
-If a user belongs to multiple groups with different role mappings, the highest privilege role is assigned. If no mapping matches, the first user to sign in receives the **Admin** role, and subsequent users receive the **Viewer** role.
+  If a user belongs to multiple groups with different role mappings, the highest privilege role is assigned. If no
+  mapping matches, the first user to sign in receives the **Admin** role, and subsequent users receive the **Viewer**
+  role.
 </Note>
 
 6. Click **Save Configuration**
 
-<Warning>
-After saving, you'll need to restart your Bifrost server for the changes to take effect.
-</Warning>
+<Warning>After saving, you'll need to restart your Bifrost server for the changes to take effect.</Warning>
 
 ### Configuration Reference
 
-| Field | Required | Description |
-|-------|----------|-------------|
-| `issuerUrl` | Yes | Okta authorization server URL (e.g., `https://your-domain.okta.com/oauth2/default`) |
-| `clientId` | Yes | Application Client ID from Okta |
-| `clientSecret` | No | Application Client Secret (enables token revocation) |
-| `audience` | Yes | API audience identifier from your authorization server |
-| `userIdField` | No | JWT claim for user ID (default: `uid`) |
-| `rolesField` | No | JWT claim for roles (default: `roles`) |
-| `teamIdsField` | No | JWT claim for group/team IDs (default: `groups`) |
+| Field          | Required | Description                                                                         |
+| -------------- | -------- | ----------------------------------------------------------------------------------- |
+| `issuerUrl`    | Yes      | Okta authorization server URL (e.g., `https://your-domain.okta.com/oauth2/default`) |
+| `clientId`     | Yes      | Application Client ID from Okta                                                     |
+| `clientSecret` | No       | Application Client Secret (enables token revocation)                                |
+| `audience`     | Yes      | API audience identifier from your authorization server                              |
+| `userIdField`  | No       | JWT claim for user ID (default: `uid`)                                              |
+| `rolesField`   | No       | JWT claim for roles (default: `roles`)                                              |
+| `teamIdsField` | No       | JWT claim for group/team IDs (default: `groups`)                                    |
 
 ---
 
@@ -337,4 +353,3 @@ After saving, you'll need to restart your Bifrost server for the changes to take
 - **[Advanced Governance](./advanced-governance)** - Learn about user budgets and compliance features
 - **[Role-Based Access Control](./advanced-governance#role-hierarchy)** - Understand the Admin, Developer, Viewer hierarchy
 - **[Audit Logs](./audit-logs)** - Monitor user authentication and activity
-
